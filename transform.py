@@ -15,24 +15,60 @@ def classify_taps(rows, batas_in, batas_out):
     if not rows:
         return None, None
 
-    rows_sorted = sorted(rows, key=lambda x: x["time"])
+    def to_minutes(t):
+        """convert time / timedelta / string → minutes"""
+        if t is None:
+            return None
 
-    raw_in = None
+        # datetime.time
+        if hasattr(t, "hour"):
+            return t.hour * 60 + t.minute
+
+        # timedelta
+        if hasattr(t, "seconds"):
+            sec = t.seconds
+            return (sec // 3600) * 60 + ((sec % 3600) // 60)
+
+        # string "HH:MM:SS"
+        if isinstance(t, str):
+            h, m, *_ = t.split(":")
+            return int(h) * 60 + int(m)
+
+        return None
+
+
+    rows_sorted = sorted(rows, key=lambda x: to_minutes(x["time"]))
+
+    # -------------------------------------------------
+    # IN = tap paling awal
+    # -------------------------------------------------
+    raw_in = rows_sorted[0]
+
+    # -------------------------------------------------
+    # OUT = tap paling akhir valid dekat jam pulang
+    # -------------------------------------------------
     raw_out = None
 
-    for r in rows_sorted:
-        t = r["time"]
+    if batas_out:
 
-        if batas_in and t <= batas_in and raw_in is None:
-            raw_in = r
+        batas = to_minutes(batas_out)
+        MAX_WINDOW = 6 * 60
 
-        MAX_OUT_WINDOW = 180
+        for r in reversed(rows_sorted):
+            t = to_minutes(r["time"])
+            if t is None:
+                continue
 
-        if batas_out and 0 <= diff_minutes(t, batas_out) <= MAX_OUT_WINDOW:
-            raw_out = r
+            diff = t - batas
+
+            if -MAX_WINDOW <= diff <= MAX_WINDOW:
+                raw_out = r
+                break
+
+    if raw_out is None:
+        raw_out = rows_sorted[-1]
 
     return raw_in, raw_out
-
 
 
 def build_attributes(
@@ -372,7 +408,13 @@ def process_pegawai_fast(nik, date):
     # =================================================
     # RAW ATTENDANCE (LIST SEMUA TAP)
     # =================================================
-    att_rows = cache.get_attendance(nik, date)
+    rows = cache.get_attendance(nik, date) or []
+
+    # SAFETY FILTER — cegah tap pegawai lain
+    rows = [r for r in rows if str(r.get("nik")).strip() == str(nik)]
+    
+    # # SAFETY FILTER — pastikan hanya tap milik pegawai ini
+    # rows = [r for r in rows if str(r.get("nik")).strip() == str(nik)]
 
     # =================================================
     # ABSENT & TAPPING OVERRIDE
