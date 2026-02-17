@@ -28,6 +28,7 @@ import cache
 # =====================================================
 
 ENV_PATH = "/var/www/monit.pekanbaru.go.id/absensi/.env"
+# ENV_PATH = os.getenv("ENV_PATH", ".env")
 load_dotenv(ENV_PATH)
 
 ATT_DB = {
