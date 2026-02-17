@@ -31,8 +31,19 @@ INSERT INTO absensi_summaries (
 
     valid_device_in, valid_device_out,
     lokasi_kerja,
+    valid_devices,
     final_note,
-    is_final
+    is_final,
+    late_minutes,
+    early_minutes,
+    attribute_in,
+    attribute_out,
+    
+    notes_hari,
+    notes_in,
+    notes_out,
+    anomaly_flags
+    
 ) VALUES (
     %(nik)s, %(date)s,
 
@@ -54,8 +65,19 @@ INSERT INTO absensi_summaries (
 
     %(valid_device_in)s, %(valid_device_out)s,
     %(lokasi_kerja)s,
+    %(valid_devices)s,
     %(final_note)s,
-    %(is_final)s
+    %(is_final)s,
+    %(late_minutes)s,
+    %(early_minutes)s,
+    %(attribute_in)s,
+    %(attribute_out)s,
+    
+    %(notes_hari)s,
+    %(notes_in)s,
+    %(notes_out)s,
+    %(anomaly_flags)s
+
 )
 ON DUPLICATE KEY UPDATE
     time_in_final       = VALUES(time_in_final),
@@ -85,8 +107,19 @@ ON DUPLICATE KEY UPDATE
     filename_out = VALUES(filename_out),
     
     lokasi_kerja        = VALUES(lokasi_kerja),
+    valid_devices       = VALUES(valid_devices),
     final_note          = VALUES(final_note),
-    is_final            = 1
+    is_final            = 1,
+    late_minutes        = VALUES(late_minutes),
+    early_minutes       = VALUES(early_minutes),
+    attribute_in        = VALUES(attribute_in),
+    attribute_out       = VALUES(attribute_out),
+    
+    notes_hari = VALUES(notes_hari),
+    notes_in = VALUES(notes_in),
+    notes_out = VALUES(notes_out),
+    anomaly_flags = VALUES(anomaly_flags)
+
 """
 
 # =====================================================

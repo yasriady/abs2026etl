@@ -5,7 +5,9 @@
 
 from utils import log, time_block, normalize_nik
 import cache
-
+from utils import (
+    normalize_id,
+)
 # =====================================================
 # ATTENDANCE (ATT_DB)
 # =====================================================
@@ -31,6 +33,7 @@ def extract_attendance(att_db, date, stats=None):
             """, [date])
 
             for row in cur.fetchall():
+                row["device_id"] = str(row["device_id"]).strip() if row["device_id"] else None
                 nik = normalize_nik(row["nik"])
                 cache.add_attendance(nik, row["tanggal"], row)
 
@@ -40,7 +43,7 @@ def extract_attendance(att_db, date, stats=None):
 # PEGAWAI / HISTORY (MAIN_DB)
 # =====================================================
 
-def extract_pegawai_ctx(main_db, date, unit_id=None, sub_unit_id=None, stats=None):
+def extract_pegawai_ctx(main_db, date, unit_id=None, sub_unit_id=None, nik=None, stats=None):
     """
     Load active pegawai histories for date
     """
@@ -59,13 +62,17 @@ def extract_pegawai_ctx(main_db, date, unit_id=None, sub_unit_id=None, stats=Non
             """
             params = [date, date]
 
-            if unit_id:
+            if unit_id is not None:
                 sql += " AND ph.id_unit = %s"
-                params.append(unit_id)
-
-            if sub_unit_id:
+                params.append(normalize_id(unit_id))
+            
+            if sub_unit_id is not None:
                 sql += " AND ph.id_sub_unit = %s"
-                params.append(sub_unit_id)
+                params.append(normalize_id(sub_unit_id))
+
+            if nik:
+                sql += " AND mp.nik = %s"
+                params.append(nik)
 
             cur.execute(sql, params)
 
@@ -85,7 +92,7 @@ def extract_devices(aux_db, stats=None):
     with time_block("extract_devices", stats):
         with aux_db.cursor() as cur:
             cur.execute("""
-                SELECT unit_id, device_id, `desc`
+                SELECT id, unit_id, device_id, `desc`
                 FROM tbl_device
             """)
             for row in cur.fetchall():
@@ -142,7 +149,9 @@ def extract_jadwal(main_db, date, stats=None):
 
             # Jadwal Pegawai
             cur.execute("""
-                SELECT nik, date, jam_masuk, jam_pulang
+                SELECT nik, date, jam_masuk, jam_pulang,
+                    penalti_tidak_tap_in,
+                    penalti_tidak_tap_out
                 FROM jadwal_pegawais
                 WHERE date = %s
             """, [date])
@@ -151,7 +160,9 @@ def extract_jadwal(main_db, date, stats=None):
 
             # Jadwal Sub Unit
             cur.execute("""
-                SELECT sub_unit_id, hari, jam_masuk, jam_pulang
+                SELECT sub_unit_id, hari, jam_masuk, jam_pulang,
+                    penalti_tidak_tap_in,
+                    penalti_tidak_tap_out
                 FROM jadwal_sub_units
                 WHERE (start_date IS NULL OR start_date <= %s)
                   AND (end_date IS NULL OR end_date >= %s)
@@ -161,7 +172,9 @@ def extract_jadwal(main_db, date, stats=None):
 
             # Jadwal Unit
             cur.execute("""
-                SELECT unit_id, hari, jam_masuk, jam_pulang
+                SELECT unit_id, hari, jam_masuk, jam_pulang,
+                    penalti_tidak_tap_in,
+                    penalti_tidak_tap_out                                
                 FROM jadwal_units
                 WHERE (start_date IS NULL OR start_date <= %s)
                   AND (end_date IS NULL OR end_date >= %s)
@@ -171,7 +184,9 @@ def extract_jadwal(main_db, date, stats=None):
 
             # Jadwal Dinas
             cur.execute("""
-                SELECT hari, jam_masuk, jam_pulang
+                SELECT hari, jam_masuk, jam_pulang,
+                    penalti_tidak_tap_in,
+                    penalti_tidak_tap_out
                 FROM jadwal_dinas
                 WHERE (start_date IS NULL OR start_date <= %s)
                   AND (end_date IS NULL OR end_date >= %s)
@@ -191,12 +206,12 @@ def extract_jadwal(main_db, date, stats=None):
 # MASTER EXTRACTOR
 # =====================================================
 
-def extract_all(main_db, aux_db, att_db, date, unit_id=None, sub_unit_id=None, stats=None):
+def extract_all(main_db, aux_db, att_db, date, unit_id=None, sub_unit_id=None, nik=None, stats=None):
     """
     Run all extract steps for a date
     """
     extract_attendance(att_db, date, stats)
-    extract_pegawai_ctx(main_db, date, unit_id, sub_unit_id, stats)
+    extract_pegawai_ctx(main_db, date, unit_id, sub_unit_id, nik, stats)
     extract_devices(aux_db, stats)
     extract_absent(aux_db, date, stats)
     extract_tapping(aux_db, date, stats)

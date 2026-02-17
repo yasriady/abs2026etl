@@ -112,3 +112,13 @@ def normalize_csv(value: str | None):
         return None
     parts = {x.strip() for x in value.split(",") if x.strip()}
     return ",".join(sorted(parts)) if parts else None
+
+# utils.py
+def normalize_id(id_value):
+    """
+    Normalize ID to string or None.
+    Critical for consistent cache lookups.
+    """
+    if id_value is None:
+        return None
+    return str(id_value).strip()

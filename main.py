@@ -77,6 +77,7 @@ def parse_args():
     parser.add_argument("--to", dest="date_to")
     parser.add_argument("--unit-id", dest="unit_id", type=int)
     parser.add_argument("--sub-unit-id", dest="sub_unit_id", type=int)
+    parser.add_argument("--nik", dest="nik")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--batch-size", type=int, default=500)
     return parser.parse_args()
@@ -101,6 +102,7 @@ def run_etl(main_db, aux_db, att_db, date, args):
             date,
             unit_id=args.unit_id,
             sub_unit_id=args.sub_unit_id,
+            nik=args.nik,
             stats=stats,
         )
 
@@ -112,6 +114,19 @@ def run_etl(main_db, aux_db, att_db, date, args):
         for nik in cache.PEGAWAI_CTX.keys() | {
             k[0] for k in cache.ATT_MAP.keys()
         }:
+            ctx = cache.get_pegawai_ctx(nik)
+            if args.unit_id and (not ctx or str(ctx["unit_id"]) != str(args.unit_id)):
+                continue
+
+            # FILTER NIK ARGUMENT
+            if args.nik and nik != args.nik:
+                continue
+    
+            # if ctx:
+            #     print("UNIT:", ctx["unit_id"], "NIK:", nik)
+            # else:
+            #     print("UNIT: NONE", "NIK:", nik)
+            
             row = process_pegawai_fast(nik, date)
             rows.append(row)
 
