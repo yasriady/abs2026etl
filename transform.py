@@ -11,34 +11,26 @@ from utils import (
 from datetime import datetime, timedelta, time
 
 def classify_taps(rows, batas_in, batas_out):
-    """
-    rows       : list row attendance
-    batas_in   : time
-    batas_out  : time
-
-    return:
-        raw_in, raw_out
-    """
 
     if not rows:
         return None, None
 
-    in_rows = []
-    out_rows = []
+    rows_sorted = sorted(rows, key=lambda x: x["time"])
 
-    for r in rows:
+    raw_in = None
+    raw_out = None
+
+    for r in rows_sorted:
         t = r["time"]
 
-        if batas_in and t < batas_in:
-            in_rows.append(r)
+        if batas_in and t <= batas_in and raw_in is None:
+            raw_in = r
 
-        elif batas_out and t > batas_out:
-            out_rows.append(r)
-
-    raw_in = min(in_rows, key=lambda x: x["time"]) if in_rows else None
-    raw_out = max(out_rows, key=lambda x: x["time"]) if out_rows else None
+        if batas_out and t >= batas_out:
+            raw_out = r
 
     return raw_in, raw_out
+
 
 
 def build_attributes(
@@ -229,6 +221,131 @@ def build_anomaly_flags(
     return "|".join(flags) if flags else None
 
 # =====================================================
+# RULE ENGINE STATE BUILDER
+# =====================================================
+def build_state(
+    *,
+    raw_in,
+    raw_out,
+    valid_device_in,
+    valid_device_out,
+    tap_in,
+    tap_out,
+    daily,
+    pegawai_active,
+    jadwal_masuk,
+    jadwal_pulang,
+    time_in_final,
+    time_out_final,
+):
+    return {
+        "has_tap_in": raw_in is not None,
+        "has_tap_out": raw_out is not None,
+
+        "valid_device_in": valid_device_in is True,
+        "valid_device_out": valid_device_out is True,
+
+        "admin_in": tap_in is not None,
+        "admin_out": tap_out is not None,
+
+        "has_daily": daily is not None,
+        "pegawai_active": pegawai_active,
+
+        "has_time_in": time_in_final is not None,
+        "has_time_out": time_out_final is not None,
+
+        "has_schedule": bool(jadwal_masuk or jadwal_pulang),
+    }
+
+
+# =====================================================
+# ATTRIBUTE RULE ENGINE
+# =====================================================
+def eval_rules(state, late_minutes, early_minutes, mode):
+
+    # ADMIN OVERRIDE
+    if state["has_daily"]:
+        return "/Adm"
+
+    if mode == "in" and state["admin_in"]:
+        return "/Adm"
+
+    if mode == "out" and state["admin_out"]:
+        return "/Adm"
+
+
+    # NO TAP = NO ATTRIBUTE
+    if mode == "in" and not state["has_tap_in"]:
+        return None
+
+    if mode == "out" and not state["has_tap_out"]:
+        return None
+
+
+    # INVALID DEVICE
+    if mode == "in" and not state["valid_device_in"]:
+        return "/X"
+
+    if mode == "out" and not state["valid_device_out"]:
+        return "/X"
+
+
+    # TIME RULES
+    if mode == "in" and late_minutes > 0:
+        return "/T"
+
+    if mode == "out" and early_minutes > 0:
+        return "/PC"
+
+    return None
+
+
+# =====================================================
+# STATUS ENGINE
+# =====================================================
+def resolve_status_final(state, time_final, valid_device):
+
+    if state["has_daily"]:
+        return "ABSENT_OVERRIDE"
+
+    if not state["pegawai_active"]:
+        return "ALPA"
+
+    if not time_final:
+        return "ALPA"
+
+    if valid_device is False:
+        return "ALPA"
+
+    return "HADIR"
+
+
+# =====================================================
+# ANOMALY ENGINE
+# =====================================================
+def build_anomaly(state):
+
+    flags = []
+
+    if not state["has_tap_in"] and not state["has_tap_out"]:
+        flags.append("NO_TAP")
+
+    if state["has_tap_in"] and not state["has_tap_out"]:
+        flags.append("NO_OUT")
+
+    if state["has_tap_out"] and not state["has_tap_in"]:
+        flags.append("NO_IN")
+
+    if not state["has_schedule"]:
+        flags.append("NO_SCHEDULE")
+
+    if state["admin_in"] or state["admin_out"]:
+        flags.append("ADMIN_OVERRIDE")
+
+    return "|".join(flags) if flags else None
+
+
+# =====================================================
 # MAIN TRANSFORM
 # =====================================================
 
@@ -301,7 +418,7 @@ def process_pegawai_fast(nik, date):
             return "Administratif", True, None
 
         if not raw:
-            return None, False, None
+            return None, None, None
 
         device_id = str(raw.get("device_id")).strip() if raw.get("device_id") else None
 
@@ -316,17 +433,28 @@ def process_pegawai_fast(nik, date):
 
     device_desc_in, valid_device_in, device_id_in = resolve_device(raw_in, time_in_source)
     device_desc_out, valid_device_out, device_id_out = resolve_device(raw_out, time_out_source)
+        
+    state = build_state(
+        raw_in=raw_in,
+        raw_out=raw_out,
+        valid_device_in=valid_device_in,
+        valid_device_out=valid_device_out,
+        tap_in=tap_in,
+        tap_out=tap_out,
+        daily=daily,
+        pegawai_active=pegawai_active,
+        jadwal_masuk=jadwal_masuk,
+        jadwal_pulang=jadwal_pulang,
+        time_in_final=time_in_final,
+        time_out_final=time_out_final,
+    )
+
 
     # =================================================
     # STATUS
     # =================================================
-    status_masuk = resolve_status(
-        time_in_final, valid_device_in, pegawai_active, tap_in, daily
-    )
-
-    status_pulang = resolve_status(
-        time_out_final, valid_device_out, pegawai_active, tap_out, daily
-    )
+    status_masuk = resolve_status_final(state, time_in_final, valid_device_in)
+    status_pulang = resolve_status_final(state, time_out_final, valid_device_out)
 
     status_hari = (
         daily["status"] if daily else
@@ -367,21 +495,9 @@ def process_pegawai_fast(nik, date):
     # =================================================
     # ATTRIBUTES
     # =================================================
-    attribute_in = build_attributes(
-        has_daily=bool(daily),
-        is_admin=bool(tap_in),
-        invalid_device=not valid_device_in,
-        is_late=late_minutes > 0,
-        mode="in"
-    )
+    attribute_in = eval_rules(state, late_minutes, early_minutes, "in")
+    attribute_out = eval_rules(state, late_minutes, early_minutes, "out")
 
-    attribute_out = build_attributes(
-        has_daily=bool(daily),
-        is_admin=bool(tap_out),
-        invalid_device=not valid_device_out,
-        is_early=early_minutes > 0,
-        mode="out"
-    )
 
     # =================================================
     # FINAL NOTE
@@ -397,17 +513,10 @@ def process_pegawai_fast(nik, date):
     filename_in = raw_in.get("filename") if time_in_source == "MESIN" else None
     filename_out = raw_out.get("filename") if time_out_source == "MESIN" else None
 
-    anomaly_flags = build_anomaly_flags(
-        att_rows,
-        raw_in,
-        raw_out,
-        valid_device_in,
-        valid_device_out,
-        jadwal_masuk,
-        jadwal_pulang,
-        tap_in,
-        tap_out
-    )
+    anomaly_flags = build_anomaly(state)
+
+    def db_bool(val):
+        return 1 if val else 0
 
     # =================================================
     # BUILD FINAL ROW
@@ -439,8 +548,9 @@ def process_pegawai_fast(nik, date):
         "device_desc_out": device_desc_out,
         "device_id_out": device_id_out,
 
-        "valid_device_in": valid_device_in,
-        "valid_device_out": valid_device_out,
+        "valid_device_in": db_bool(valid_device_in),
+        "valid_device_out": db_bool(valid_device_out),
+
 
         "lokasi_kerja": lokasi_kerja,
         "valid_devices": lokasi_kerja,
