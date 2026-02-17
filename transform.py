@@ -26,7 +26,9 @@ def classify_taps(rows, batas_in, batas_out):
         if batas_in and t <= batas_in and raw_in is None:
             raw_in = r
 
-        if batas_out and t >= batas_out:
+        MAX_OUT_WINDOW = 180
+
+        if batas_out and 0 <= diff_minutes(t, batas_out) <= MAX_OUT_WINDOW:
             raw_out = r
 
     return raw_in, raw_out
@@ -459,7 +461,7 @@ def process_pegawai_fast(nik, date):
     status_hari = (
         daily["status"] if daily else
         "ALPA" if not pegawai_active else
-        "HADIR" if status_masuk != "ALPA" or status_pulang != "ALPA" else
+        "HADIR" if status_masuk == "HADIR" and status_pulang == "HADIR" else
         "ALPA"
     )
 
@@ -506,7 +508,7 @@ def process_pegawai_fast(nik, date):
         f"DAILY_NOTE:{daily['status']}" if daily else
         "ADMIN_OVERRIDE" if tap_in or tap_out else
         "NO_ACTIVE_HISTORY" if not pegawai_active else
-        "INVALID_DEVICE" if not valid_device_in or not valid_device_out else
+        "INVALID_DEVICE" if valid_device_in is False or valid_device_out is False else
         "AUTO"
     )
 

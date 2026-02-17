@@ -12,13 +12,12 @@ from utils import (
 # ATTENDANCE (ATT_DB)
 # =====================================================
 
-def extract_attendance(att_db, date, stats=None):
-    """
-    Load raw attendance for a date into ATT_MAP
-    """
+def extract_attendance(att_db, date, nik=None, stats=None):
+
     with time_block("extract_attendance", stats):
         with att_db.cursor() as cur:
-            cur.execute("""
+
+            sql = """
                 SELECT
                     TRIM(nik) AS nik,
                     DATE(`date`) AS tanggal,
@@ -28,14 +27,28 @@ def extract_attendance(att_db, date, stats=None):
                     lat,
                     `long`
                 FROM DB_ATT_tbl_attendance
-                WHERE DATE(`date`) = %s
-                ORDER BY nik, `time`
-            """, [date])
+                WHERE `date` >= %s
+                AND `date` < %s
+            """
+
+            params = [
+                f"{date} 00:00:00",
+                f"{date} 23:59:59"
+            ]
+
+            if nik:
+                sql += " AND TRIM(nik) = %s"
+                params.append(nik)
+
+            sql += " ORDER BY nik, `time`"
+
+            cur.execute(sql, params)
 
             for row in cur.fetchall():
                 row["device_id"] = str(row["device_id"]).strip() if row["device_id"] else None
-                nik = normalize_nik(row["nik"])
-                cache.add_attendance(nik, row["tanggal"], row)
+
+                row_nik = normalize_nik(row["nik"])
+                cache.add_attendance(row_nik, row["tanggal"], row)
 
         log(f"Attendance loaded: {len(cache.ATT_MAP)} keys")
 
